@@ -1,0 +1,24 @@
+#!/bin/bash
+#
+# helper script to execute torpor
+
+# check prerequisites
+type docker >/dev/null 2>&1 || { echo >&2 "Can't find docker command."; exit 1; }
+
+echo "" > parameters.json
+echo "" > torpor.log
+if [ ! -f base.json ] ; then
+  echo "Cannot find base.json file"
+  exit 1
+fi
+docker run \
+  --rm \
+  --privileged \
+  --pid=host \
+  -v `pwd`/base.json:/base.json \
+  -v `pwd`/parameters.json:/parameters.json \
+  -v `which docker`:/usr/bin/docker \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /sys/fs/:/sys/fs/ \
+  -e PYTHONWARNINGS="ignore" \
+  ivotron/torpor --parallelism 1 --technique MonotonicSearch --bail-threshold 1 "$@" &> torpor.log
