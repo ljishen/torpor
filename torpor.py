@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
-# Autotune --cpu-quota and --mem-bw-limit parameters to port the performance of
-# a container between machines
+# Autotune --cpu-quota parameters to emulate container performance across
+# machines
 
 import os
 t = os.path.join(os.path.dirname(__file__), os.path.expandvars(
@@ -28,18 +28,11 @@ parser.add_argument('--base-file', default='base.json',
                     help=('JSON file containing results of base system'))
 parser.add_argument('--output-file', default='parameters.json',
                     help=('output JSON file containing resulting parameters'))
-parser.add_argument('--benchmark-image',
-                    required=True, help='docker image for benchmarks.')
-parser.add_argument('--max-mem-bw', required=True,
-                    help='Maximum bandwidth for memory')
 parser.add_argument('--max-cpu-quota', required=True,
                     help='Maximum CPU quota allowed')
-parser.add_argument('--docker-flags', type=str, required=True,
-                    help='extra flags that are passed to docker run')
 parser.add_argument('--show-bench-results', action='store_true',
                     help=('Show result of each benchmark (for every test)'))
 # internal arguments
-parser.add_argument('--cpuquota', help=argparse.SUPPRESS)
 parser.add_argument('--category', help=argparse.SUPPRESS)
 parser.add_argument('--base-data', type=json.loads, help=argparse.SUPPRESS)
 parser.add_argument('--outjson', help=argparse.SUPPRESS)
@@ -99,32 +92,33 @@ class MonotonicSearch(technique.SequentialSearchTechnique):
 technique.register(MonotonicSearch())
 
 
-def get_result(results_data, bench_name):
-    for bench in results_data:
-        if bench['name'] == bench_name:
-            return float(bench['result'])
-    raise Exception("Can't find result for benchmark " + bench_name)
+def get_result(bench_results, test_name):
+    found = None
+    for test in bench_results:
+        if test['name'] == test_name:
+            found = test
+            break
+
+    if not found:
+        raise Exception("Can't find result for benchmark {}".format(test_name))
+
+    return found
 
 
-def get_benchmarks_for_category(base_data, category):
-    benchs = []
-    for bench in base_data:
-        if bench['class'] == category:
-            benchs.append(bench['name'])
-    return benchs
+def get_docker_cmd(cfg, bench):
+    return ('docker run --rm --cpu-quota={} {} {} {}').format(
+               cfg['cpu-quota'],
+               bench.docker_flags,
+               bench.image_name,
+               bench.image_args)
 
 
-def get_cmd_for_class(category, cfg):
-    if category == 'cpu':
-        return ('docker run {} --rm --cpu-quota={} {}').format(
-                   args.docker_flags, cfg['cpu-quota'], args.benchmark_image)
-    elif category == 'memory':
-        if args.cpuquota is None:
-            raise Exception("Expecting value for cpuquota")
+def skip(category, test_b):
+    # TODO apply generic filters to skip/include the test
+    if test_b['class'] != category:
+        return True
 
-        return ('docker-run {} {} 0 {} --rm --cpu-quota={} {}').format(
-                   "1000", cfg['mem-bw-limit'],
-                   args.docker_flags, args.cpuquota, args.benchmark_image)
+    return False
 
 
 class TorporTuner(MeasurementInterface):
@@ -138,13 +132,19 @@ class TorporTuner(MeasurementInterface):
         if args.category == 'cpu':
             manipulator.add_parameter(
                 IntegerParameter('cpu-quota', 1000, args.max_cpu_quota))
-        elif args.category == 'memory':
-            manipulator.add_parameter(
-                IntegerParameter('mem-bw-limit', 50, args.max_mem_bw))
         else:
             raise Exception('Unknown benchmark class ' + args.category)
 
         return manipulator
+
+    def run_bench(self, cmd):
+        result = self.call_program(cmd)
+        if result['returncode'] != 0:
+            raise Exception(
+                'Non-zero exit code:\n{}\nstdout:\n{}\nstderr:\n{}'.format(
+                    cmd, str(result['stdout']),
+                    str(result['stderr'])))
+        return json.loads(result['stdout'])
 
     def run(self, desired_result, input, limit):
         """
@@ -152,46 +152,26 @@ class TorporTuner(MeasurementInterface):
         """
         cfg = desired_result.configuration.data
 
-        base_data = self.args.base_data
-        benchs = get_benchmarks_for_category(base_data,
-                                             self.args.category)
-        if not benchs:
-            raise Exception("No benchmarks for " + self.args.category)
-
-        docker_cmd = get_cmd_for_class(self.args.category, cfg)
-
-        has_incomplete_results = True
-
-        while has_incomplete_results:
-            result = self.call_program(docker_cmd)
-            if result['returncode'] != 0:
-                raise Exception(
-                    'Non-zero exit code:\n{}\nstdout:\n{}\nstderr:\n{}'.format(
-                        docker_cmd, str(result['stdout']),
-                        str(result['stderr'])))
-
-            target_data = json.loads(result['stdout'])
-
-            try:
-                # check that we got results for all benchmarks, otherwise re-run
-                for bench_name in benchs:
-                    get_result(target_data, bench_name)
-            except Exception, e:
-                if "Can't find result for benchmark" in str(e):
-                    raise
-                # let's try again
-                continue
-
-            has_incomplete_results = False
+        # the '_b' suffix denotes 'base' and '_t' denotes 'target'
+        results_b = self.args.base_data
 
         count = 0
         speedup_sum = 0.0
-        for bench_name in benchs:
-            base_result = get_result(base_data, bench_name)
-            target_result = get_result(target_data, bench_name)
-            speedup = target_result/base_result
-            speedup_sum += speedup
-            count += 1
+
+        for bench_b in results_b:
+            # TODO apply generic filters to skip/include this docker run
+            docker_cmd = get_docker_cmd(self.args.category, cfg, bench_b)
+            bench_t = self.run_bench(docker_cmd)
+
+            for test_b in bench_b['tests']:
+                if skip(self.args.category, test_b):
+                    continue
+
+                test_t = get_result(bench_t, test_b['name'])
+
+                speedup = test_t['result'] / test_b['result']
+                speedup_sum += speedup
+                count += 1
 
         speedup_mean = speedup_sum / count
 
@@ -219,6 +199,17 @@ if __name__ == '__main__':
         raise Exception('Expecting name of file with base results')
     with open(args.base_file) as f:
         args.base_data = json.load(f)
+
+    # check base data
+    assert isinstance(args.base_data, list)
+    for b in args.base_data:
+        assert isinstance(b, dict)
+        assert ('id' in b)
+        assert ('class' in b)
+        assert ('docker_flags' in b)
+        assert ('image_name' in b)
+        assert ('image_args' in b)
+        assert ('tests' in b)
 
     # initialize output dict
     args.outjson = {}
