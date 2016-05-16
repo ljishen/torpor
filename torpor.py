@@ -105,12 +105,13 @@ def get_result(bench_results, test_name):
     return found
 
 
-def get_docker_cmd(cfg, bench):
-    return ('docker run --rm --cpu-quota={} {} {} {}').format(
+def get_docker_cmd(max_cpu_quota, cfg, bench):
+    return ('docker run --rm --cpu-period={} --cpu-quota={} {} {} {}').format(
+               max_cpu_quota,
                cfg['cpu-quota'],
-               bench.docker_flags,
-               bench.image_name,
-               bench.image_args)
+               bench['docker_flags'],
+               bench['image_name'],
+               bench['image_args'])
 
 
 def skip(category, test_b):
@@ -160,7 +161,7 @@ class TorporTuner(MeasurementInterface):
 
         for bench_b in results_b:
             # TODO apply generic filters to skip/include this docker run
-            docker_cmd = get_docker_cmd(self.args.category, cfg, bench_b)
+            docker_cmd = get_docker_cmd(self.args.max_cpu_quota, cfg, bench_b)
             bench_t = self.run_bench(docker_cmd)
 
             for test_b in bench_b['tests']:
@@ -169,7 +170,7 @@ class TorporTuner(MeasurementInterface):
 
                 test_t = get_result(bench_t, test_b['name'])
 
-                speedup = test_t['result'] / test_b['result']
+                speedup = float(test_t['result']) / float(test_b['result'])
                 speedup_sum += speedup
                 count += 1
 
@@ -200,16 +201,21 @@ if __name__ == '__main__':
     with open(args.base_file) as f:
         args.base_data = json.load(f)
 
-    # check base data
+    # check base data schema
     assert isinstance(args.base_data, list)
     for b in args.base_data:
         assert isinstance(b, dict)
         assert ('id' in b)
-        assert ('class' in b)
         assert ('docker_flags' in b)
         assert ('image_name' in b)
         assert ('image_args' in b)
         assert ('tests' in b)
+        assert isinstance(b['tests'], list)
+
+        for t in b['tests']:
+            assert ('name' in t)
+            assert ('class' in t)
+            assert ('result' in t)
 
     # initialize output dict
     args.outjson = {}
