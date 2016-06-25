@@ -7,16 +7,35 @@ type docker >/dev/null 2>&1 || { echo >&2 "Can't find docker command."; exit 1; 
 
 echo "" > parameters.json
 echo "" > torpor.log
-if [ ! -f base.json ] ; then
-  echo "Cannot find base.json file"
+
+ARGS=()
+base_filename="base.json"
+output_filename="parameters.json"
+while (($#)); do
+    if [ "$1" == "--base-filename" ]; then
+        shift
+        base_filename="$1"
+    elif [ "$1" == "--output-filename" ]; then
+        shift
+        output_filename="$1"
+    else
+        ARGS+=("$1")
+    fi
+shift
+done
+
+if [ ! -f $base_filename ]; then
+  echo "Cannot find $base_filename file"
   exit 1
 fi
+
 docker run \
   --rm \
   --privileged \
-  -v `pwd`/base.json:/base.json \
-  -v `pwd`/parameters.json:/parameters.json \
+  -v `pwd`/$base_filename:/$base_filename \
+  -v `pwd`/$output_filename:/$output_filename \
   -v `which docker`:/usr/bin/docker \
   -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /usr/lib/x86_64-linux-gnu/libltdl.so.7:/usr/lib/libltdl.so.7 \
   -e PYTHONWARNINGS="ignore" \
-  ivotron/torpor --parallelism 1 --technique MonotonicSearch --bail-threshold 1 "$@" &> torpor.log
+  ivotron/torpor --parallelism 1 --technique MonotonicSearch --bail-threshold 1 --base-file /$base_filename --output-file /$output_filename "${ARGS[@]}" &> torpor.log
