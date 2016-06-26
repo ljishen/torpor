@@ -29,6 +29,7 @@ if [ ! -f $base_filename ]; then
   exit 1
 fi
 
+
 docker run \
   --rm \
   --privileged \
@@ -37,5 +38,11 @@ docker run \
   -v `which docker`:/usr/bin/docker \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /usr/lib/x86_64-linux-gnu/libltdl.so.7:/usr/lib/libltdl.so.7 \
+  -v /lib/x86_64-linux-gnu/libsystemd-journal.so.0:/usr/lib/libsystemd-journal.so.0 \
+  -v /lib/x86_64-linux-gnu/libcgmanager.so.0:/usr/lib/libcgmanager.so.0 \
+  -v /lib/x86_64-linux-gnu/libnih.so.1:/usr/lib/libnih.so.1 \
+  -v /lib/x86_64-linux-gnu/libnih-dbus.so.1:/usr/lib/libnih-dbus.so.1 \
+  -v /lib/x86_64-linux-gnu/libdbus-1.so.3:/usr/lib/libdbus-1.so.3 \
+  -v /lib/x86_64-linux-gnu/libgcrypt.so.11:/usr/lib/libgcrypt.so.11 \
   -e PYTHONWARNINGS="ignore" \
   ivotron/torpor --parallelism 1 --technique MonotonicSearch --bail-threshold 1 --base-file /$base_filename --output-file /$output_filename "${ARGS[@]}" &> torpor.log
