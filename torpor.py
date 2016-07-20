@@ -157,7 +157,7 @@ class TorporTuner(MeasurementInterface):
         results_b = self.args.base_data
 
         count = 0
-        speedup_sum = 0.0
+        normalized_sum = 0.0
 
         for bench_b in results_b:
             # TODO apply generic filters to skip/include this docker run
@@ -170,19 +170,16 @@ class TorporTuner(MeasurementInterface):
 
                 test_t = get_result(bench_t, test_b['name'])
 
-                speedup = float(test_t['result']) / float(test_b['result'])
-                speedup_sum += speedup
+                if float(test_t['result']) > float(test_b['result']):
+                    normalized = float(test_t['result']) / float(test_b['result']) - 1
+                else:
+                    normalized = float(test_b['result']) / float(test_t['result']) - 1
+                normalized_sum += normalized
                 count += 1
 
-        speedup_mean = speedup_sum / count
+        normalized_mean = normalized_sum / count
 
-        if speedup_mean < 1.0:
-            # heuristic that reflects the speedup on 1.0 to prevent the
-            # optimization to minimize up to 0. E.g. instead of having
-            # a speedup of 0.952, we have a speedup of 1.048
-            speedup_mean = 1 + (1.0 - speedup_mean)
-
-        return Result(time=speedup_mean)
+        return Result(time=normalized_mean)
 
     def save_final_config(self, configuration):
         '''
