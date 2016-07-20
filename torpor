@@ -45,4 +45,4 @@ docker run \
   -v /lib/x86_64-linux-gnu/libdbus-1.so.3:/usr/lib/libdbus-1.so.3 \
   -v /lib/x86_64-linux-gnu/libgcrypt.so.11:/usr/lib/libgcrypt.so.11 \
   -e PYTHONWARNINGS="ignore" \
-  ivotron/torpor --parallelism 1 --technique MonotonicSearch --bail-threshold 1 --base-file /$base_filename --output-file /$output_filename "${ARGS[@]}" &> torpor.log
+  ljishen/torpor --parallelism 1 --technique MonotonicSearch --bail-threshold 1 --base-file /$base_filename --output-file /$output_filename "${ARGS[@]}" &> torpor.log
